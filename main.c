@@ -18,6 +18,7 @@
 #define ERROR_INVALID_HOST 2
 #define ERROR_SOCKET_CREATION 3
 #define ERROR_CONNECTION_FAILED 4
+static int tag_counter = 1;
 
 // IMAP Config struct
 typedef struct {
@@ -215,6 +216,33 @@ void create_output_directory(const char *dir) {
     }
 }
 
+int get_message_id_line_index(const char *uids_map_path, const char *message_id) {
+    FILE *uids_map_file = fopen(uids_map_path, "r");
+    if (!uids_map_file) {
+        perror("Failed to open uids_map file for reading");
+        return -1; // Error opening the file
+    }
+
+    char line[512];
+    int line_number = 0;
+
+    // Iterate through each line in the file
+    while (fgets(line, sizeof(line), uids_map_file)) {
+        line_number++;
+        // Remove newline character for comparison
+        line[strcspn(line, "\n")] = 0;
+
+        // Compare the line with the provided Message-ID
+        if (strcmp(line, message_id) == 0) {
+            fclose(uids_map_file);
+            return line_number; // Return the 1-based line index
+        }
+    }
+
+    fclose(uids_map_file);
+    return -1; // Return -1 if the Message-ID was not found
+}
+
 void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char *out_dir) {
     size_t max_command_length = headers_only ? 32 : 23; // Length of the format strings
     size_t email_id_length = snprintf(NULL, 0, "%d", email_id); // Length of the email_id when formatted
@@ -231,23 +259,11 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
              email_id, email_id);
     
     send_imap_command(sockfd, fetch_command);
-
     free(fetch_command);
-    
+
     char buffer[BUFFER_SIZE];
     char message_buffer[BUFFER_SIZE * 4] = {0};  // Larger buffer for handling split responses
     ssize_t bytes_received;
-    FILE *file;
-    
-    // Create the output file for the email
-    char file_path[512];
-    snprintf(file_path, sizeof(file_path), "%s/email_%d.txt", out_dir, email_id);
-    
-    file = fopen(file_path, "w");
-    if (!file) {
-        perror("Failed to open file for writing");
-        return;
-    }
 
     // Create a command tag for checking responses (e.g., A001)
     char command_tag[64];
@@ -259,19 +275,18 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
     FILE *uids_map_file = fopen(uids_map_path, "a+");
     if (!uids_map_file) {
         perror("Failed to open uids_map file");
-        fclose(file);
         return;
     }
 
     int message_id_found = 0;
     char *message_id_start = NULL;
-    
+    int line_index = -1;  // Declare line_index here
+
     // Read until we get the response indicating the fetch is complete
     while (1) {
         bytes_received = recv(sockfd, buffer, sizeof(buffer) - 1, 0);
         if (bytes_received < 0) {
             perror("Failed to fetch email");
-            fclose(file);
             fclose(uids_map_file);
             return;
         }
@@ -315,14 +330,17 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
                     // If not found, write the Message-ID to the file
                     if (!found) {
                         fprintf(uids_map_file, "%s\n", temp_message_id);
+                        fflush(uids_map_file);
                     }
+
+                    // Now, retrieve the line index from the uids_map
+                    line_index = get_message_id_line_index(uids_map_path, temp_message_id);
+                    printf("index: %d\n", line_index);
 
                     *message_id_end = '>'; // Restore the end bracket
                 }
             }
         }
-
-        fprintf(file, "%s", buffer); // Write the received data to the file
 
         // Check for the end of the response
         if (strstr(buffer, command_tag) && (strstr(buffer, "OK") || strstr(buffer, "NO") || strstr(buffer, "BAD"))) {
@@ -333,6 +351,25 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
         memset(buffer, 0, sizeof(buffer));
     }
 
+    FILE *file;
+    
+    // Create the output file for the email using line_index
+    char file_path[512];
+    if (line_index > 0) {
+        snprintf(file_path, sizeof(file_path), "%s/email_%d.txt", out_dir, line_index);
+    } else {
+        // Fallback if line_index is invalid
+        snprintf(file_path, sizeof(file_path), "%s/email_%d.txt", out_dir, email_id);
+    }
+    
+    file = fopen(file_path, "w");
+    if (!file) {
+        perror("Failed to open file for writing");
+        return;
+    }
+
+    fprintf(file, "%s", message_buffer); // Write the received data to the file
+    fflush(file);
     fclose(file);
     fclose(uids_map_file);
 }
