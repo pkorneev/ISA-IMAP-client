@@ -1,0 +1,11 @@
+# Ignore everything
+*
+
+# Except for the .gitignore file
+!.gitignore
+
+# Except for .c files
+!*.c
+
+# Except for Makefile
+!Makefile
