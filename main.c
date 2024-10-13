@@ -277,7 +277,7 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
 
 // Search and fetch emails (UNSEEN if new_only is set)
 void search_and_fetch_emails(int sockfd, int new_only, int headers_only, const char *out_dir) {
-    char search_command[BUFFER_SIZE];
+    char search_command[512];
     snprintf(search_command, sizeof(search_command), "A998 SEARCH %s\r\n", new_only ? "UNSEEN" : "ALL");
     send_imap_command(sockfd, search_command);
 
@@ -334,7 +334,7 @@ int main(int argc, char *argv[]) {
     read_imap_response(socket_fd);  // Read and discard the initial server greeting
 
     // Authenticate using LOGIN command
-    char login_command[BUFFER_SIZE];
+    char login_command[1024];
     snprintf(login_command, sizeof(login_command), "A999 LOGIN %s %s\r\n", auth.username, auth.password);
     send_imap_command(socket_fd, login_command);
     read_imap_response(socket_fd);  // Check if login was successful
