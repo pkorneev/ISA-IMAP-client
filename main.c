@@ -253,12 +253,23 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
     char command_tag[64];
     snprintf(command_tag, sizeof(command_tag), "A00%d", email_id);
     
+    // Open uids_map file for appending Message-ID
+    char uids_map_path[512];
+    snprintf(uids_map_path, sizeof(uids_map_path), "%s/uids_map", out_dir);
+    FILE *uids_map_file = fopen(uids_map_path, "a+");
+    if (!uids_map_file) {
+        perror("Failed to open uids_map file");
+        fclose(file);
+        return;
+    }
+
     // Read until we get the response indicating the fetch is complete
     while (1) {
         bytes_received = recv(sockfd, buffer, sizeof(buffer) - 1, 0);
         if (bytes_received < 0) {
             perror("Failed to fetch email");
             fclose(file);
+            fclose(uids_map_file);
             return;
         } 
 
@@ -266,15 +277,43 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
         fprintf(file, "%s", buffer); // Write the received data to the file
 
         char *message_id_header = strstr(buffer, "Message-ID: ");
-        if (message_id_header) {
+         if (message_id_header) {
             char *start = strchr(message_id_header, '<');
             char *end = strchr(message_id_header, '>');
 
             if (start && end && start < end) {
-                start++;
-                *end = '\0';
-                printf("Message-ID: %s\n", start); // Print the content inside the angle brackets
-                *end = '>';
+                start++; // Move pointer to the start of the message ID
+                *end = '\0'; // Null-terminate the string at the end bracket
+
+                // Check if Message-ID is already in the uids_map file
+                char line[512];
+                int found = 0;
+                rewind(uids_map_file); // Go to the beginning of the uids_map file
+                while (fgets(line, sizeof(line), uids_map_file)) {
+                    // Remove newline character for comparison
+                    line[strcspn(line, "\n")] = 0;
+                    char temp_message_id[512];
+                    if(headers_only) {
+                        snprintf(temp_message_id, sizeof(temp_message_id), "%s-H", start);
+                    } else {
+                        snprintf(temp_message_id, sizeof(temp_message_id), "%s", start);
+                    }
+                    if (strcmp(line, temp_message_id) == 0) {
+                        found = 1; // Message-ID already exists
+                        break;
+                    }
+                }
+
+                // If not found, write the Message-ID to the file
+                if (!found) {
+                    if(headers_only) {
+                        fprintf(uids_map_file, "%s-H\n", start);
+                    } else {
+                        fprintf(uids_map_file, "%s\n", start);
+                    }
+                }
+
+                *end = '>'; // Restore the end bracket
             }
         }
 
@@ -285,7 +324,7 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
     }
 
     fclose(file);
-    printf("Saved email %d to %s\n", email_id, file_path);
+    fclose(uids_map_file);
 }
 
 // Search and fetch emails (UNSEEN if new_only is set)
