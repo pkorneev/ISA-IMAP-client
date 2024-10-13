@@ -250,7 +250,7 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
     }
 
     // Create a command tag for checking responses (e.g., A001)
-    char command_tag[200];
+    char command_tag[64];
     snprintf(command_tag, sizeof(command_tag), "A00%d", email_id);
     
     // Read until we get the response indicating the fetch is complete
@@ -260,10 +260,23 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
             perror("Failed to fetch email");
             fclose(file);
             return;
-        }
+        } 
 
         buffer[bytes_received] = '\0'; // Null-terminate the buffer
         fprintf(file, "%s", buffer); // Write the received data to the file
+
+        char *message_id_header = strstr(buffer, "Message-ID: ");
+        if (message_id_header) {
+            char *start = strchr(message_id_header, '<');
+            char *end = strchr(message_id_header, '>');
+
+            if (start && end && start < end) {
+                start++;
+                *end = '\0';
+                printf("Message-ID: %s\n", start); // Print the content inside the angle brackets
+                *end = '>';
+            }
+        }
 
         // Check for the end of the response
         if (strstr(buffer, command_tag) && (strstr(buffer, "OK") || strstr(buffer, "NO") || strstr(buffer, "BAD"))) {
