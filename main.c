@@ -289,15 +289,17 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
                 char line[512];
                 int found = 0;
                 rewind(uids_map_file); // Go to the beginning of the uids_map file
+
+                char temp_message_id[512];
+                if(headers_only) {
+                    snprintf(temp_message_id, sizeof(temp_message_id), "%s-H", start);
+                } else {
+                    snprintf(temp_message_id, sizeof(temp_message_id), "%s", start);
+                }
+
                 while (fgets(line, sizeof(line), uids_map_file)) {
                     // Remove newline character for comparison
                     line[strcspn(line, "\n")] = 0;
-                    char temp_message_id[512];
-                    if(headers_only) {
-                        snprintf(temp_message_id, sizeof(temp_message_id), "%s-H", start);
-                    } else {
-                        snprintf(temp_message_id, sizeof(temp_message_id), "%s", start);
-                    }
                     if (strcmp(line, temp_message_id) == 0) {
                         found = 1; // Message-ID already exists
                         break;
@@ -306,11 +308,7 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
 
                 // If not found, write the Message-ID to the file
                 if (!found) {
-                    if(headers_only) {
-                        fprintf(uids_map_file, "%s-H\n", start);
-                    } else {
-                        fprintf(uids_map_file, "%s\n", start);
-                    }
+                    fprintf(uids_map_file, "%s\n", temp_message_id);
                 }
 
                 *end = '>'; // Restore the end bracket
