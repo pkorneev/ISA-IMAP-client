@@ -215,7 +215,6 @@ void create_output_directory(const char *dir) {
     }
 }
 
-// Fetch email by ID and save it to a file
 void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char *out_dir) {
     size_t max_command_length = headers_only ? 32 : 23; // Length of the format strings
     size_t email_id_length = snprintf(NULL, 0, "%d", email_id); // Length of the email_id when formatted
@@ -236,6 +235,7 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
     free(fetch_command);
     
     char buffer[BUFFER_SIZE];
+    char message_buffer[BUFFER_SIZE * 4] = {0};  // Larger buffer for handling split responses
     ssize_t bytes_received;
     FILE *file;
     
@@ -263,6 +263,9 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
         return;
     }
 
+    int message_id_found = 0;
+    char *message_id_start = NULL;
+    
     // Read until we get the response indicating the fetch is complete
     while (1) {
         bytes_received = recv(sockfd, buffer, sizeof(buffer) - 1, 0);
@@ -271,54 +274,63 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
             fclose(file);
             fclose(uids_map_file);
             return;
-        } 
+        }
 
         buffer[bytes_received] = '\0'; // Null-terminate the buffer
-        fprintf(file, "%s", buffer); // Write the received data to the file
+        strcat(message_buffer, buffer); // Append to the message buffer
 
-        char *message_id_header = strstr(buffer, "Message-ID: ");
-         if (message_id_header) {
-            char *start = strchr(message_id_header, '<');
-            char *end = strchr(message_id_header, '>');
+        if (!message_id_found) {
+            // Search for "Message-ID: " in the accumulated buffer
+            char *message_id_header = strstr(message_buffer, "Message-ID: ");
+            if (message_id_header) {
+                message_id_start = strchr(message_id_header, '<');
+                char *message_id_end = strchr(message_id_header, '>');
 
-            if (start && end && start < end) {
-                start++; // Move pointer to the start of the message ID
-                *end = '\0'; // Null-terminate the string at the end bracket
+                if (message_id_start && message_id_end && message_id_start < message_id_end) {
+                    message_id_start++; // Move pointer to the start of the message ID
+                    *message_id_end = '\0'; // Null-terminate at the closing '>'
+                    message_id_found = 1; // Mark Message-ID as found
 
-                // Check if Message-ID is already in the uids_map file
-                char line[512];
-                int found = 0;
-                rewind(uids_map_file); // Go to the beginning of the uids_map file
+                    // Check if Message-ID is already in the uids_map file
+                    char line[512];
+                    int found = 0;
+                    rewind(uids_map_file); // Go to the beginning of the uids_map file
 
-                char temp_message_id[512];
-                if(headers_only) {
-                    snprintf(temp_message_id, sizeof(temp_message_id), "%s-H", start);
-                } else {
-                    snprintf(temp_message_id, sizeof(temp_message_id), "%s", start);
-                }
-
-                while (fgets(line, sizeof(line), uids_map_file)) {
-                    // Remove newline character for comparison
-                    line[strcspn(line, "\n")] = 0;
-                    if (strcmp(line, temp_message_id) == 0) {
-                        found = 1; // Message-ID already exists
-                        break;
+                    char temp_message_id[512];
+                    if(headers_only) {
+                        snprintf(temp_message_id, sizeof(temp_message_id), "%s-H", message_id_start);
+                    } else {
+                        snprintf(temp_message_id, sizeof(temp_message_id), "%s", message_id_start);
                     }
-                }
 
-                // If not found, write the Message-ID to the file
-                if (!found) {
-                    fprintf(uids_map_file, "%s\n", temp_message_id);
-                }
+                    while (fgets(line, sizeof(line), uids_map_file)) {
+                        // Remove newline character for comparison
+                        line[strcspn(line, "\n")] = 0;
+                        if (strcmp(line, temp_message_id) == 0) {
+                            found = 1; // Message-ID already exists
+                            break;
+                        }
+                    }
 
-                *end = '>'; // Restore the end bracket
+                    // If not found, write the Message-ID to the file
+                    if (!found) {
+                        fprintf(uids_map_file, "%s\n", temp_message_id);
+                    }
+
+                    *message_id_end = '>'; // Restore the end bracket
+                }
             }
         }
+
+        fprintf(file, "%s", buffer); // Write the received data to the file
 
         // Check for the end of the response
         if (strstr(buffer, command_tag) && (strstr(buffer, "OK") || strstr(buffer, "NO") || strstr(buffer, "BAD"))) {
             break; // Break if we found the specific command tag with OK, NO, or BAD
         }
+
+        // Clear the buffer to handle new data on the next loop iteration
+        memset(buffer, 0, sizeof(buffer));
     }
 
     fclose(file);
