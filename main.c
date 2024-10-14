@@ -14,7 +14,6 @@
 #include <ctype.h>
 
 #define BUFFER_SIZE 1048576
-#define MAX_EMAILS 100
 #define ERROR_INVALID_HOST 2
 #define ERROR_SOCKET_CREATION 3
 #define ERROR_CONNECTION_FAILED 4
