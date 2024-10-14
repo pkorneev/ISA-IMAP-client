@@ -17,7 +17,7 @@
 #define ERROR_INVALID_HOST 2
 #define ERROR_SOCKET_CREATION 3
 #define ERROR_CONNECTION_FAILED 4
-static int tag_counter = 1;
+static int downloaded_mails_cnt = 0;
 
 // IMAP Config struct
 typedef struct {
@@ -282,6 +282,7 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
     int message_id_found = 0;
     char *message_id_start = NULL;
     int line_index = -1;
+    int isNewEmail = 0;
 
     // Read until we get the response indicating the fetch is complete
     while (1) {
@@ -330,6 +331,7 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
 
                     // If not found, write the Message-ID to the file
                     if (!found) {
+                        isNewEmail = 1;
                         fprintf(uids_map_file, "%s\n", temp_message_id);
                         fflush(uids_map_file);
                     }
@@ -387,8 +389,11 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
         perror("Failed to open file for writing");
         return;
     }
-
-    fprintf(file, "%s", message_buffer); // Write the received data to the file
+    if (isNewEmail) {
+        fprintf(file, "%s", message_buffer); // Write the received data to the file
+        downloaded_mails_cnt++;
+    }
+    
     fflush(file);
     fclose(file);
     fclose(uids_map_file);
@@ -459,6 +464,9 @@ int main(int argc, char *argv[]) {
 
     // Fetch emails and save them to the output directory
     search_and_fetch_emails(socket_fd, config.new_only, config.headers_only, config.out_dir);
+
+    printf("Staženo %d zpráv ze schránky %s\n", downloaded_mails_cnt, config.mailbox);
+    
 
     // Close the socket when done
     close(socket_fd);
