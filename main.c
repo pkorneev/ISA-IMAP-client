@@ -254,9 +254,16 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
     }
 
     // Format the fetch command
-    snprintf(fetch_command, total_length, 
+    
+     if (headers_only) {
+        snprintf(fetch_command, total_length, 
+             headers_only ? "A00%dH FETCH %d BODY.PEEK[HEADER]\r\n" : "A00%dH FETCH %d BODY[]\r\n", 
+             email_id, email_id);
+     } else {
+        snprintf(fetch_command, total_length, 
              headers_only ? "A00%d FETCH %d BODY.PEEK[HEADER]\r\n" : "A00%d FETCH %d BODY[]\r\n", 
              email_id, email_id);
+     }
     
     send_imap_command(sockfd, fetch_command);
     free(fetch_command);
@@ -335,7 +342,6 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
 
                     // Now, retrieve the line index from the uids_map
                     line_index = get_message_id_line_index(uids_map_path, temp_message_id);
-                    printf("index: %d\n", line_index);
 
                     *message_id_end = '>'; // Restore the end bracket
                 }
