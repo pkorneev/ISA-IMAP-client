@@ -254,17 +254,14 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
     }
 
     // Format the fetch command
-    
-     if (headers_only) {
+    if (headers_only) {
         snprintf(fetch_command, total_length, 
-             headers_only ? "A00%dH FETCH %d BODY.PEEK[HEADER]\r\n" : "A00%dH FETCH %d BODY[]\r\n", 
-             email_id, email_id);
-     } else {
+            "A00%dH FETCH %d BODY.PEEK[HEADER]\r\n", email_id, email_id);
+    } else {
         snprintf(fetch_command, total_length, 
-             headers_only ? "A00%d FETCH %d BODY.PEEK[HEADER]\r\n" : "A00%d FETCH %d BODY[]\r\n", 
-             email_id, email_id);
-     }
-    
+            "A00%d FETCH %d BODY[]\r\n", email_id, email_id);
+    }
+
     send_imap_command(sockfd, fetch_command);
     free(fetch_command);
 
@@ -287,7 +284,7 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
 
     int message_id_found = 0;
     char *message_id_start = NULL;
-    int line_index = -1;  // Declare line_index here
+    int line_index = -1;
 
     // Read until we get the response indicating the fetch is complete
     while (1) {
@@ -319,7 +316,7 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
                     rewind(uids_map_file); // Go to the beginning of the uids_map file
 
                     char temp_message_id[512];
-                    if(headers_only) {
+                    if (headers_only) {
                         snprintf(temp_message_id, sizeof(temp_message_id), "%s-H", message_id_start);
                     } else {
                         snprintf(temp_message_id, sizeof(temp_message_id), "%s", message_id_start);
@@ -356,6 +353,26 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
         // Clear the buffer to handle new data on the next loop iteration
         memset(buffer, 0, sizeof(buffer));
     }
+
+    // Remove the first and last lines from message_buffer
+    char *first_newline = strchr(message_buffer, '\n');
+    if (first_newline) {
+        memmove(message_buffer, first_newline + 1, strlen(first_newline)); // Skip first line
+    }
+
+    char *last_newline = strrchr(message_buffer, '\n');
+    if (last_newline) {
+        *last_newline = '\0';
+        char *second_last_newline = strrchr(message_buffer, '\n');
+        if (second_last_newline) {
+            *second_last_newline = '\0';
+            char *third_last_newline = strrchr(message_buffer, '\n');
+                if (third_last_newline) {
+                    *third_last_newline = '\0';
+                }
+        }
+    }
+    strcat(message_buffer, "\n");
 
     FILE *file;
     
