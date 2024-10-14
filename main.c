@@ -181,7 +181,6 @@ void read_imap_response(int sockfd) {
         }
 
         buffer[bytes_received] = '\0';  // Null-terminate the response
-        printf("%s", buffer);
     } while (strstr(buffer, "\r\n") == NULL);  // Continue until a full response is received
 
     if (!strstr(buffer, "OK")) {  // Check for OK response
@@ -212,7 +211,6 @@ void create_output_directory(const char *dir) {
             perror("Failed to create output directory");
             exit(EXIT_FAILURE);
         }
-        printf("Created output directory: %s\n", dir);
     }
 }
 
@@ -411,9 +409,6 @@ void search_and_fetch_emails(int sockfd, int new_only, int headers_only, const c
     }
     buffer[bytes_received] = '\0';
 
-    // Parse the email IDs from the SEARCH response
-    printf("Search response: %s\n", buffer);
-
     char *token = strtok(buffer, " ");
     while (token) {
         if (isdigit(*token)) {
@@ -430,9 +425,6 @@ int main(int argc, char *argv[]) {
 
     parse_args(argc, argv, &config);
     read_auth_file(config.auth_file, &auth);
-
-    printf("username: %s\n", auth.username);
-    printf("pwd: %s\n", auth.password);
 
     // Attempt to connect to the server
     int socket_fd = connect_to_server(config.server, config.port);
@@ -452,7 +444,6 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    printf("Connected to server: %s on port %d\n", config.server, config.port);
     read_imap_response(socket_fd);  // Read and discard the initial server greeting
 
     // Authenticate using LOGIN command
