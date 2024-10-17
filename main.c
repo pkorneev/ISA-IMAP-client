@@ -359,9 +359,9 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
     
     char file_path[512];
     if (line_index > 0) {
-        snprintf(file_path, sizeof(file_path), "%s/email_%d.txt", out_dir, line_index);
+        snprintf(file_path, sizeof(file_path), "%s/email_%d.eml", out_dir, line_index);
     } else {
-        snprintf(file_path, sizeof(file_path), "%s/email_%d.txt", out_dir, email_id);
+        snprintf(file_path, sizeof(file_path), "%s/email_%d.eml", out_dir, email_id);
     }
     
     file = fopen(file_path, "w");
