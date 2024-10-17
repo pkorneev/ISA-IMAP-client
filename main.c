@@ -154,6 +154,7 @@ int connect_to_server(const char *host, int port, int use_ssl, SSL_CTX **ssl_ctx
         return ERROR_CONNECTION_FAILED;
     }
 
+ 
     if (use_ssl) {
         SSL_library_init();
         OpenSSL_add_all_algorithms();
@@ -182,7 +183,6 @@ int connect_to_server(const char *host, int port, int use_ssl, SSL_CTX **ssl_ctx
             return ERROR_CONNECTION_FAILED;
         }
 
-        printf("SSL connection established.\n");
     }
 
     return sock;
