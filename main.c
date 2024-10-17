@@ -137,27 +137,24 @@ int connect_to_server(const char *host, int port) {
         return ERROR_INVALID_HOST;
     }
 
-    // Create socket
     int sock;
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
         perror("Cannot create socket");
         return ERROR_SOCKET_CREATION;
     }
 
-    // Create sockaddr_in (socket on server)
     struct sockaddr_in server_sock;
     server_sock.sin_family = AF_INET;
     server_sock.sin_port = htons(port);
     memcpy(&(server_sock.sin_addr), H->h_addr, H->h_length);
 
-    // Connect
     if (connect(sock, (struct sockaddr *)&server_sock, sizeof(server_sock)) == -1) {
         perror("Cannot connect to server");
         close(sock);
         return ERROR_CONNECTION_FAILED;
     }
 
-    return sock; // Return the socket descriptor if successful
+    return sock;
 }
 
 void send_imap_command(int sockfd, const char *command) {
@@ -179,17 +176,16 @@ void read_imap_response(int sockfd) {
             exit(EXIT_FAILURE);
         }
 
-        buffer[bytes_received] = '\0';  // Null-terminate the response
-    } while (strstr(buffer, "\r\n") == NULL);  // Continue until a full response is received
+        buffer[bytes_received] = '\0';
+    } while (strstr(buffer, "\r\n") == NULL);
 
-    if (!strstr(buffer, "OK")) {  // Check for OK response
+    if (!strstr(buffer, "OK")) {
         fprintf(stderr, "Server response error: %s\n", buffer);
         exit(EXIT_FAILURE);
     }
 }
 
 void select_mailbox(int sockfd, const char *mailbox) {
-    // "A997 SELECT " is 12 characters, plus 2 for "\r\n" and 1 for the null terminator '\0'
     size_t command_length = strlen(mailbox) + 12 + 2 + 1;
     char *select_command = (char *)malloc(command_length);
     if (select_command == NULL) {
@@ -217,40 +213,36 @@ int get_message_id_line_index(const char *uids_map_path, const char *message_id)
     FILE *uids_map_file = fopen(uids_map_path, "r");
     if (!uids_map_file) {
         perror("Failed to open uids_map file for reading");
-        return -1; // Error opening the file
+        return -1;
     }
 
     char line[512];
     int line_number = 0;
 
-    // Iterate through each line in the file
     while (fgets(line, sizeof(line), uids_map_file)) {
         line_number++;
-        // Remove newline character for comparison
         line[strcspn(line, "\n")] = 0;
 
-        // Compare the line with the provided Message-ID
         if (strcmp(line, message_id) == 0) {
             fclose(uids_map_file);
-            return line_number; // Return the 1-based line index
+            return line_number;
         }
     }
 
     fclose(uids_map_file);
-    return -1; // Return -1 if the Message-ID was not found
+    return -1;
 }
 
 void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char *out_dir) {
-    size_t max_command_length = headers_only ? 32 : 23; // Length of the format strings
-    size_t email_id_length = snprintf(NULL, 0, "%d", email_id); // Length of the email_id when formatted
-    size_t total_length = max_command_length + 2 * email_id_length + 1; // Command length + email_id replacements + null terminator
+    size_t max_command_length = headers_only ? 32 : 23;
+    size_t email_id_length = snprintf(NULL, 0, "%d", email_id);
+    size_t total_length = max_command_length + 2 * email_id_length + 1;
     char *fetch_command = (char *)malloc(total_length);
     if (fetch_command == NULL) {
         perror("Failed to allocate memory for fetch command");
         exit(EXIT_FAILURE);
     }
 
-    // Format the fetch command
     if (headers_only) {
         snprintf(fetch_command, total_length, 
             "A00%dH FETCH %d BODY.PEEK[HEADER]\r\n", email_id, email_id);
@@ -263,14 +255,12 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
     free(fetch_command);
 
     char buffer[BUFFER_SIZE];
-    char message_buffer[BUFFER_SIZE * 4] = {0};  // Larger buffer for handling split responses
+    char message_buffer[BUFFER_SIZE * 4] = {0};
     ssize_t bytes_received;
 
-    // Create a command tag for checking responses (e.g., A001)
     char command_tag[64];
     snprintf(command_tag, sizeof(command_tag), "A00%d", email_id);
     
-    // Open uids_map file for appending Message-ID
     char uids_map_path[512];
     snprintf(uids_map_path, sizeof(uids_map_path), "%s/uids_map", out_dir);
     FILE *uids_map_file = fopen(uids_map_path, "a+");
@@ -293,25 +283,23 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
             return;
         }
 
-        buffer[bytes_received] = '\0'; // Null-terminate the buffer
-        strcat(message_buffer, buffer); // Append to the message buffer
+        buffer[bytes_received] = '\0';
+        strcat(message_buffer, buffer);
 
         if (!message_id_found) {
-            // Search for "Message-ID: " in the accumulated buffer
             char *message_id_header = strstr(message_buffer, "Message-ID: ");
             if (message_id_header) {
                 message_id_start = strchr(message_id_header, '<');
                 char *message_id_end = strchr(message_id_header, '>');
 
                 if (message_id_start && message_id_end && message_id_start < message_id_end) {
-                    message_id_start++; // Move pointer to the start of the message ID
-                    *message_id_end = '\0'; // Null-terminate at the closing '>'
-                    message_id_found = 1; // Mark Message-ID as found
+                    message_id_start++;
+                    *message_id_end = '\0';
+                    message_id_found = 1;
 
-                    // Check if Message-ID is already in the uids_map file
                     char line[512];
                     int found = 0;
-                    rewind(uids_map_file); // Go to the beginning of the uids_map file
+                    rewind(uids_map_file);
 
                     char temp_message_id[512];
                     if (headers_only) {
@@ -321,42 +309,36 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
                     }
 
                     while (fgets(line, sizeof(line), uids_map_file)) {
-                        // Remove newline character for comparison
                         line[strcspn(line, "\n")] = 0;
                         if (strcmp(line, temp_message_id) == 0) {
-                            found = 1; // Message-ID already exists
+                            found = 1;
                             break;
                         }
                     }
 
-                    // If not found, write the Message-ID to the file
                     if (!found) {
                         isNewEmail = 1;
                         fprintf(uids_map_file, "%s\n", temp_message_id);
                         fflush(uids_map_file);
                     }
 
-                    // Now, retrieve the line index from the uids_map
                     line_index = get_message_id_line_index(uids_map_path, temp_message_id);
 
-                    *message_id_end = '>'; // Restore the end bracket
+                    *message_id_end = '>';
                 }
             }
         }
 
-        // Check for the end of the response
         if (strstr(buffer, command_tag) && (strstr(buffer, "OK") || strstr(buffer, "NO") || strstr(buffer, "BAD"))) {
-            break; // Break if we found the specific command tag with OK, NO, or BAD
+            break;
         }
 
-        // Clear the buffer to handle new data on the next loop iteration
         memset(buffer, 0, sizeof(buffer));
     }
 
-    // Remove the first and last lines from message_buffer
     char *first_newline = strchr(message_buffer, '\n');
     if (first_newline) {
-        memmove(message_buffer, first_newline + 1, strlen(first_newline)); // Skip first line
+        memmove(message_buffer, first_newline + 1, strlen(first_newline));
     }
 
     char *last_newline = strrchr(message_buffer, '\n');
@@ -375,12 +357,10 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
 
     FILE *file;
     
-    // Create the output file for the email using line_index
     char file_path[512];
     if (line_index > 0) {
         snprintf(file_path, sizeof(file_path), "%s/email_%d.txt", out_dir, line_index);
     } else {
-        // Fallback if line_index is invalid
         snprintf(file_path, sizeof(file_path), "%s/email_%d.txt", out_dir, email_id);
     }
     
@@ -390,7 +370,7 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
         return;
     }
     if (isNewEmail) {
-        fprintf(file, "%s", message_buffer); // Write the received data to the file
+        fprintf(file, "%s", message_buffer);
         downloaded_mails_cnt++;
     }
     
@@ -433,7 +413,6 @@ int main(int argc, char *argv[]) {
     // Attempt to connect to the server
     int socket_fd = connect_to_server(config.server, config.port);
     if (socket_fd < 0) {
-        // Error handling based on returned error codes
         switch (socket_fd) {
             case ERROR_INVALID_HOST:
                 fprintf(stderr, "Invalid host: %s\n", config.server);
@@ -448,27 +427,21 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    read_imap_response(socket_fd);  // Read and discard the initial server greeting
+    read_imap_response(socket_fd);
 
-    // Authenticate using LOGIN command
     char login_command[1024];
     snprintf(login_command, sizeof(login_command), "A999 LOGIN %s %s\r\n", auth.username, auth.password);
     send_imap_command(socket_fd, login_command);
-    read_imap_response(socket_fd);  // Check if login was successful
+    read_imap_response(socket_fd);
 
-    // Select the mailbox (e.g., INBOX)
     select_mailbox(socket_fd, config.mailbox);
 
-    // Ensure the output directory exists
     create_output_directory(config.out_dir);
 
-    // Fetch emails and save them to the output directory
     search_and_fetch_emails(socket_fd, config.new_only, config.headers_only, config.out_dir);
 
     printf("Staženo %d zpráv ze schránky %s\n", downloaded_mails_cnt, config.mailbox);
     
-
-    // Close the socket when done
     close(socket_fd);
 
     return 0;
