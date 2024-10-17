@@ -130,7 +130,7 @@ void parse_args(int argc, char *argv[], ImapConfig *config) {
 }
 
 // Connect to the IMAP server
-int connect_to_server(const char *host, int port) {
+int connect_to_server(const char *host, int port, int use_ssl, SSL_CTX **ssl_ctx, SSL **ssl) {
     struct hostent *H = gethostbyname(host);
     if (!H) {
         fprintf(stderr, "Cannot get host by name: %s\n", host);
@@ -154,29 +154,86 @@ int connect_to_server(const char *host, int port) {
         return ERROR_CONNECTION_FAILED;
     }
 
+    if (use_ssl) {
+        SSL_library_init();
+        OpenSSL_add_all_algorithms();
+        SSL_load_error_strings();
+        *ssl_ctx = SSL_CTX_new(TLS_client_method());
+        if (!*ssl_ctx) {
+            fprintf(stderr, "SSL_CTX_new failed.\n");
+            close(sock);
+            return ERROR_SOCKET_CREATION;
+        }
+
+        *ssl = SSL_new(*ssl_ctx);
+        if (!*ssl) {
+            fprintf(stderr, "SSL_new failed.\n");
+            SSL_CTX_free(*ssl_ctx);
+            close(sock);
+            return ERROR_SOCKET_CREATION;
+        }
+
+        SSL_set_fd(*ssl, sock);
+        if (SSL_connect(*ssl) != 1) {
+            fprintf(stderr, "SSL connection failed.\n");
+            SSL_free(*ssl);
+            SSL_CTX_free(*ssl_ctx);
+            close(sock);
+            return ERROR_CONNECTION_FAILED;
+        }
+
+        printf("SSL connection established.\n");
+    }
+
     return sock;
 }
 
-void send_imap_command(int sockfd, const char *command) {
-    ssize_t bytes_sent = send(sockfd, command, strlen(command), 0);
-    if (bytes_sent < 0) {
-        perror("Failed to send command to server");
-        exit(EXIT_FAILURE);
+void send_imap_command(int sockfd, SSL *ssl, const char *command) {
+    ssize_t bytes_sent;
+
+    if (ssl) {
+        bytes_sent = SSL_write(ssl, command, strlen(command));
+        if (bytes_sent <= 0) {
+            int ssl_err = SSL_get_error(ssl, bytes_sent);
+            fprintf(stderr, "Failed to send command to server (SSL): %d\n", ssl_err);
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        bytes_sent = send(sockfd, command, strlen(command), 0);
+        if (bytes_sent < 0) {
+            perror("Failed to send command to server");
+            exit(EXIT_FAILURE);
+        }
     }
 }
 
-// Read the server response
-void read_imap_response(int sockfd) {
+void read_imap_response(int sockfd, SSL *ssl) {
     char buffer[BUFFER_SIZE];
     ssize_t bytes_received;
+
     do {
-        bytes_received = recv(sockfd, buffer, sizeof(buffer) - 1, 0);
-        if (bytes_received < 0) {
-            perror("Failed to read response from server");
-            exit(EXIT_FAILURE);
+        if (ssl) {
+            bytes_received = SSL_read(ssl, buffer, sizeof(buffer) - 1);
+            if (bytes_received <= 0) {
+                int ssl_err = SSL_get_error(ssl, bytes_received);
+                if (ssl_err == SSL_ERROR_ZERO_RETURN) {
+                    fprintf(stderr, "SSL connection closed by peer.\n");
+                    exit(EXIT_FAILURE);
+                } else {
+                    fprintf(stderr, "Failed to read response from server (SSL): %d\n", ssl_err);
+                    exit(EXIT_FAILURE);
+                }
+            }
+        } else {
+            bytes_received = recv(sockfd, buffer, sizeof(buffer) - 1, 0);
+            if (bytes_received < 0) {
+                perror("Failed to read response from server");
+                exit(EXIT_FAILURE);
+            }
         }
 
         buffer[bytes_received] = '\0';
+
     } while (strstr(buffer, "\r\n") == NULL);
 
     if (!strstr(buffer, "OK")) {
@@ -185,7 +242,7 @@ void read_imap_response(int sockfd) {
     }
 }
 
-void select_mailbox(int sockfd, const char *mailbox) {
+void select_mailbox(int sockfd, const char *mailbox,  SSL *ssl) {
     size_t command_length = strlen(mailbox) + 12 + 2 + 1;
     char *select_command = (char *)malloc(command_length);
     if (select_command == NULL) {
@@ -193,8 +250,8 @@ void select_mailbox(int sockfd, const char *mailbox) {
         exit(EXIT_FAILURE);
     }
     snprintf(select_command, command_length, "A997 SELECT %s\r\n", mailbox);
-    send_imap_command(sockfd, select_command);
-    read_imap_response(sockfd);
+    send_imap_command(sockfd, ssl, select_command);
+    read_imap_response(sockfd, ssl);
     free(select_command);
 }
 
@@ -233,7 +290,7 @@ int get_message_id_line_index(const char *uids_map_path, const char *message_id)
     return -1;
 }
 
-void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char *out_dir) {
+void fetch_and_save_email(int sockfd, SSL *ssl, int email_id, int headers_only, const char *out_dir) {
     size_t max_command_length = headers_only ? 32 : 23;
     size_t email_id_length = snprintf(NULL, 0, "%d", email_id);
     size_t total_length = max_command_length + 2 * email_id_length + 1;
@@ -251,7 +308,7 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
             "A00%d FETCH %d BODY[]\r\n", email_id, email_id);
     }
 
-    send_imap_command(sockfd, fetch_command);
+    send_imap_command(sockfd, ssl, fetch_command);
     free(fetch_command);
 
     char buffer[BUFFER_SIZE];
@@ -276,7 +333,11 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
 
     // Read until we get the response indicating the fetch is complete
     while (1) {
-        bytes_received = recv(sockfd, buffer, sizeof(buffer) - 1, 0);
+        if (ssl) {
+            bytes_received = SSL_read(ssl, buffer, sizeof(buffer) - 1);
+        } else {
+            bytes_received = recv(sockfd, buffer, sizeof(buffer) - 1, 0);
+        }
         if (bytes_received < 0) {
             perror("Failed to fetch email");
             fclose(uids_map_file);
@@ -380,13 +441,20 @@ void fetch_and_save_email(int sockfd, int email_id, int headers_only, const char
 }
 
 // Search and fetch emails (UNSEEN if new_only is set)
-void search_and_fetch_emails(int sockfd, int new_only, int headers_only, const char *out_dir) {
+void search_and_fetch_emails(int sockfd, SSL *ssl, int new_only, int headers_only, const char *out_dir) {
     char search_command[512];
     snprintf(search_command, sizeof(search_command), "A998 SEARCH %s\r\n", new_only ? "UNSEEN" : "ALL");
-    send_imap_command(sockfd, search_command);
+    send_imap_command(sockfd, ssl, search_command);
 
     char buffer[BUFFER_SIZE];
-    ssize_t bytes_received = recv(sockfd, buffer, sizeof(buffer) - 1, 0);
+    ssize_t bytes_received;
+
+    if (ssl) {
+        bytes_received = SSL_read(ssl, buffer, sizeof(buffer) - 1);
+    } else {
+        bytes_received = recv(sockfd, buffer, sizeof(buffer) - 1, 0);
+    }
+
     if (bytes_received < 0) {
         perror("Failed to search emails");
         return;
@@ -397,7 +465,7 @@ void search_and_fetch_emails(int sockfd, int new_only, int headers_only, const c
     while (token) {
         if (isdigit(*token)) {
             int email_id = atoi(token);
-            fetch_and_save_email(sockfd, email_id, headers_only, out_dir);
+            fetch_and_save_email(sockfd, ssl, email_id, headers_only, out_dir);
         }
         token = strtok(NULL, " ");
     }
@@ -410,8 +478,11 @@ int main(int argc, char *argv[]) {
     parse_args(argc, argv, &config);
     read_auth_file(config.auth_file, &auth);
 
-    // Attempt to connect to the server
-    int socket_fd = connect_to_server(config.server, config.port);
+    int socket_fd;
+    SSL_CTX *ssl_ctx = NULL;
+    SSL *ssl = NULL;
+
+    socket_fd = connect_to_server(config.server, config.port, config.use_tls, &ssl_ctx, &ssl);
     if (socket_fd < 0) {
         switch (socket_fd) {
             case ERROR_INVALID_HOST:
@@ -427,21 +498,27 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    read_imap_response(socket_fd);
+    read_imap_response(socket_fd, ssl);
 
     char login_command[1024];
     snprintf(login_command, sizeof(login_command), "A999 LOGIN %s %s\r\n", auth.username, auth.password);
-    send_imap_command(socket_fd, login_command);
-    read_imap_response(socket_fd);
+    send_imap_command(socket_fd, ssl, login_command);
+    read_imap_response(socket_fd, ssl);
 
-    select_mailbox(socket_fd, config.mailbox);
+    select_mailbox(socket_fd, config.mailbox, ssl);
 
     create_output_directory(config.out_dir);
 
-    search_and_fetch_emails(socket_fd, config.new_only, config.headers_only, config.out_dir);
+    search_and_fetch_emails(socket_fd, ssl, config.new_only, config.headers_only, config.out_dir);
 
     printf("Staženo %d zpráv ze schránky %s\n", downloaded_mails_cnt, config.mailbox);
-    
+
+    // Cleanup
+    if (ssl) {
+        SSL_shutdown(ssl);
+        SSL_free(ssl);
+        SSL_CTX_free(ssl_ctx);
+    }
     close(socket_fd);
 
     return 0;
