@@ -130,7 +130,7 @@ void parse_args(int argc, char *argv[], ImapConfig *config) {
 }
 
 // Connect to the IMAP server
-int connect_to_server(const char *host, int port, int use_ssl, SSL_CTX **ssl_ctx, SSL **ssl) {
+int connect_to_server(const char *host, int port, int use_ssl, SSL_CTX **ssl_ctx, SSL **ssl, const char *certfile, const char *certaddr) {
     struct hostent *H = gethostbyname(host);
     if (!H) {
         fprintf(stderr, "Cannot get host by name: %s\n", host);
@@ -166,6 +166,23 @@ int connect_to_server(const char *host, int port, int use_ssl, SSL_CTX **ssl_ctx
             return ERROR_SOCKET_CREATION;
         }
 
+        if (certfile || certaddr) {
+            if (!SSL_CTX_load_verify_locations(*ssl_ctx, (certfile ? certfile : NULL), (certaddr ? certaddr : NULL))) {
+                fprintf(stderr, "Could not load certificates from file '%s' or directory '%s'\n", certfile ? certfile : "none", certaddr ? certaddr : "none");
+                SSL_CTX_free(*ssl_ctx);
+                close(sock);
+                return ERROR_SOCKET_CREATION;
+            }
+        } else {
+            // Use the default certificate location if none is provided
+            if (!SSL_CTX_set_default_verify_paths(*ssl_ctx)) {
+                fprintf(stderr, "Failed to set default certificate paths\n");
+                SSL_CTX_free(*ssl_ctx);
+                close(sock);
+                return ERROR_SOCKET_CREATION;
+            }
+        }
+
         *ssl = SSL_new(*ssl_ctx);
         if (!*ssl) {
             fprintf(stderr, "SSL_new failed.\n");
@@ -177,6 +194,16 @@ int connect_to_server(const char *host, int port, int use_ssl, SSL_CTX **ssl_ctx
         SSL_set_fd(*ssl, sock);
         if (SSL_connect(*ssl) != 1) {
             fprintf(stderr, "SSL connection failed.\n");
+            SSL_free(*ssl);
+            SSL_CTX_free(*ssl_ctx);
+            close(sock);
+            return ERROR_CONNECTION_FAILED;
+        }
+
+        // Verify the server's certificate
+        if (SSL_get_verify_result(*ssl) != X509_V_OK) {
+            fprintf(stderr, "SSL certificate verification failed.\n");
+            SSL_shutdown(*ssl);
             SSL_free(*ssl);
             SSL_CTX_free(*ssl_ctx);
             close(sock);
@@ -482,7 +509,7 @@ int main(int argc, char *argv[]) {
     SSL_CTX *ssl_ctx = NULL;
     SSL *ssl = NULL;
 
-    socket_fd = connect_to_server(config.server, config.port, config.use_tls, &ssl_ctx, &ssl);
+    socket_fd = connect_to_server(config.server, config.port, config.use_tls, &ssl_ctx, &ssl, config.certfile, config.certaddr);
     if (socket_fd < 0) {
         switch (socket_fd) {
             case ERROR_INVALID_HOST:
