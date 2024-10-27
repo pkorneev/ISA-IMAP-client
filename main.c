@@ -1,3 +1,5 @@
+// Pavlo Kornieiev
+// xkorni03
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -174,7 +176,6 @@ int connect_to_server(const char *host, int port, int use_ssl, SSL_CTX **ssl_ctx
                 return ERROR_SOCKET_CREATION;
             }
         } else {
-            // Use the default certificate location if none is provided
             if (!SSL_CTX_set_default_verify_paths(*ssl_ctx)) {
                 fprintf(stderr, "Failed to set default certificate paths\n");
                 SSL_CTX_free(*ssl_ctx);
@@ -200,7 +201,6 @@ int connect_to_server(const char *host, int port, int use_ssl, SSL_CTX **ssl_ctx
             return ERROR_CONNECTION_FAILED;
         }
 
-        // Verify the server's certificate
         if (SSL_get_verify_result(*ssl) != X509_V_OK) {
             fprintf(stderr, "SSL certificate verification failed.\n");
             SSL_shutdown(*ssl);
@@ -358,7 +358,6 @@ void fetch_and_save_email(int sockfd, SSL *ssl, int email_id, int headers_only, 
     int line_index = -1;
     int isNewEmail = 0;
 
-    // Read until we get the response indicating the fetch is complete
     while (1) {
         if (ssl) {
             bytes_received = SSL_read(ssl, buffer, sizeof(buffer) - 1);
