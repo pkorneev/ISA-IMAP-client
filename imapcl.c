@@ -377,6 +377,9 @@ void fetch_and_save_email(int sockfd, SSL *ssl, int email_id, int headers_only, 
 
         if (!message_id_found) {
             char *message_id_header = strstr(message_buffer, "Message-ID: ");
+            if (!message_id_header) {
+                strstr(message_buffer, "Message-Id: ");
+            }
             if (message_id_header) {
                 message_id_start = strchr(message_id_header, '<');
                 char *message_id_end = strchr(message_id_header, '>');
