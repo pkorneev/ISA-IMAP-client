@@ -9,3 +9,6 @@
 
 # Except for Makefile
 !Makefile
+
+# Except for README
+!README.md
