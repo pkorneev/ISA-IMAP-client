@@ -41,7 +41,7 @@ typedef struct {
     char password[256];
 } AuthData;
 
-// Read authentication file
+// Read authentication file and save to AuthData struct
 void read_auth_file(const char *auth_file, AuthData *auth) {
     FILE *file = fopen(auth_file, "r");
     if (!file) {
@@ -66,7 +66,7 @@ void read_auth_file(const char *auth_file, AuthData *auth) {
     }
 }
 
-// Parse command-line arguments
+// Parse command-line arguments and save to ImapConfig struct
 void parse_args(int argc, char *argv[], ImapConfig *config) {
     config->port = 0;
     config->use_tls = 0;
@@ -131,7 +131,7 @@ void parse_args(int argc, char *argv[], ImapConfig *config) {
     }
 }
 
-// Connect to the IMAP server
+// Connect to the IMAP server (if SSL then use SSL connection)
 int connect_to_server(const char *host, int port, int use_ssl, SSL_CTX **ssl_ctx, SSL **ssl, const char *certfile, const char *certaddr) {
     struct hostent *H = gethostbyname(host);
     if (!H) {
@@ -156,7 +156,7 @@ int connect_to_server(const char *host, int port, int use_ssl, SSL_CTX **ssl_ctx
         return ERROR_CONNECTION_FAILED;
     }
 
- 
+    // ssl connection with error checks
     if (use_ssl) {
         SSL_library_init();
         OpenSSL_add_all_algorithms();
@@ -214,7 +214,7 @@ int connect_to_server(const char *host, int port, int use_ssl, SSL_CTX **ssl_ctx
 
     return sock;
 }
-
+// Send command to imap server through socket
 void send_imap_command(int sockfd, SSL *ssl, const char *command) {
     ssize_t bytes_sent;
 
@@ -234,6 +234,7 @@ void send_imap_command(int sockfd, SSL *ssl, const char *command) {
     }
 }
 
+// get imap response 
 void read_imap_response(int sockfd, SSL *ssl) {
     char buffer[BUFFER_SIZE];
     ssize_t bytes_received;
@@ -293,6 +294,7 @@ void create_output_directory(const char *dir) {
     }
 }
 
+// get index of the line of the message in uids_map file
 int get_message_id_line_index(const char *uids_map_path, const char *message_id) {
     FILE *uids_map_file = fopen(uids_map_path, "r");
     if (!uids_map_file) {
@@ -316,7 +318,7 @@ int get_message_id_line_index(const char *uids_map_path, const char *message_id)
     fclose(uids_map_file);
     return -1;
 }
-
+// fetching and saving email to the file, uids_map update
 void fetch_and_save_email(int sockfd, SSL *ssl, int email_id, int headers_only, const char *out_dir) {
     size_t max_command_length = headers_only ? 32 : 23;
     size_t email_id_length = snprintf(NULL, 0, "%d", email_id);
