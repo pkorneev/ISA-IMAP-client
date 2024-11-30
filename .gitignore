@@ -12,3 +12,6 @@
 
 # Except for README
 !README.md
+
+# Except for pdf
+!manual.pdf
